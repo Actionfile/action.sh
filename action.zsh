@@ -19,27 +19,28 @@ actions_find_actionfile() {
 actions_extract_action_sections() {
   local file="$1"
   awk '
-    BEGIN {in_section=0; keys=""; body=""}
+    BEGIN {in_code=0; keys=""; body=""}
     /^### / {
-      if (in_section && body != "") {
+      # Output previous section for ALL keys
+      if (body != "" && keys != "") {
         n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++) {
+        for (i=1; i<=n; i++)
           printf("SECTIONSEP%sKEYSEP%sBODYSEP%sBODYEND\n", arr[i], body, "");
-        }
       }
-      keys = substr($0, 5)
-      in_section=0
-      body=""
+      keys = substr($0, 5);
+      body = "";
+      in_code = 0;
+      next;
     }
-    /^```sh/ {in_section=1; next}
-    in_section && /^```/ {in_section=0; next}
-    in_section {body = body $0 "\n"}
+    /^```sh/ {in_code=1; next}
+    in_code && /^```/ {in_code=0; next}
+    in_code {body = body $0 "\n"}
     END {
-      if (in_section && body != "") {
+      # Output last section
+      if (body != "" && keys != "") {
         n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++) {
+        for (i=1; i<=n; i++)
           printf("SECTIONSEP%sKEYSEP%sBODYSEP%sBODYEND\n", arr[i], body, "");
-        }
       }
     }
   ' "$file"
@@ -169,17 +170,23 @@ action() {
   local -A sections
   local sectiondump
   sectiondump="$(actions_extract_action_sections "$file")"
-  local key body
-  while read -r line; do
-    if [[ "$line" == SECTIONSEP*KEYSEP*BODYSEP*BODYEND ]]; then
+  local key=""
+  local body=""
+  while IFS= read -r line; do
+    if [[ "$line" == SECTIONSEP*KEYSEP* ]]; then
       key="${line#SECTIONSEP}"
       key="${key%%KEYSEP*}"
       body="${line#*KEYSEP}"
-      body="${body#*BODYSEP}"
-      body="${body%%BODYEND*}"
-      sections[$key]="$body"
+      # Start new body, will accumulate lines
+    elif [[ "$line" == BODYSEPBODYEND ]]; then
+      if [[ -n "$key" ]]; then
+        sections[$key]="$body"
+        key="" body=""
+      fi
+    elif [[ -n "$key" ]]; then
+      body="$body"$'\n'"$line"
     fi
-  done <<< "$sectiondump"
+  done < <(printf "%s\n" "$sectiondump")
 
   # Extract default section
   local default_section

@@ -105,8 +105,8 @@ actions_detect_platform() {
 action() {
   local shell="${ACTIONFILE_SHELL:-bash}"
   local search_dir=""
-  local action=""
-  local context=""
+  local act=""
+  local ctx=""
   local file=""
   local -A arg_vars
 
@@ -131,10 +131,10 @@ action() {
       search_dir="${@[i]}"
     elif [[ "${@[i]}" == *".md" ]]; then
       file="${@[i]}"
-    elif [[ -z "$action" ]]; then
-      action="${@[i]}"
-    elif [[ -z "$context" ]]; then
-      context="${@[i]}"
+    elif [[ -z "$act" ]]; then
+      act="${@[i]}"
+    elif [[ -z "$ctx" ]]; then
+      ctx="${@[i]}"
     fi
     ((i++))
   done
@@ -186,30 +186,30 @@ action() {
   default_section="$(actions_extract_default_section "$file")"
 
   local script=""
-  if [[ -z "$action" ]]; then
+  if [[ -z "$act" ]]; then
     if [[ -n "$default_section" ]]; then
       script="$default_section"
     else
       echo "ERROR: No action specified and no default section found in $file" >&2
       return 2
     fi
-  elif [[ -n "$context" ]]; then
-    local composite="${context}-${action}"
+  elif [[ -n "$ctx" ]]; then
+    local composite="${ctx}-${act}"
     script="${sections[$composite]}"
     if [[ -z "$script" ]]; then
       echo "ERROR: Section \"$composite\" not found and fallback is not allowed." >&2
       return 2
     fi
   else
-    script="${sections[$action]}"
+    script="${sections[$act]}"
     if [[ -z "$script" ]]; then
       local platform="$(actions_detect_platform)"
       if [[ -n "$platform" ]]; then
-        local platform_key="${platform}-${action}"
+        local platform_key="${platform}-${act}"
         script="${sections[$platform_key]}"
       fi
       if [[ -z "$script" ]]; then
-        echo "ERROR: Section \"$action\" not found and no suitable context-specific section available." >&2
+        echo "ERROR: Section \"$act\" not found and no suitable ctx-specific section available." >&2
         return 2
       fi
     fi
@@ -219,4 +219,4 @@ action() {
   eval "$shell -i -c \"$script\""
 }
 
-action "$@"
+# action "$@"

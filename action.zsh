@@ -112,6 +112,7 @@ action() {
   local file=""
   local interactive=0
   local background=0
+  local list_mode=0
   local -A arg_vars
 
   local i=1
@@ -135,6 +136,8 @@ action() {
       interactive=1
     elif [[ "${@[i]}" == "--background" ]]; then
       background=1
+    elif [[ "${@[i]}" == "--list" ]]; then
+      list_mode=1
     elif [[ "${@[i]}" == "." || "${@[i]}" == */ || -d "${@[i]}" ]]; then
       search_dir="${@[i]}"
     elif [[ "${@[i]}" == *".md" ]]; then
@@ -147,7 +150,7 @@ action() {
     ((i++))
   done
 
-  # File resolution logic
+  # File resolution logic: always resolve file, even for --list
   if [[ -z "$file" ]]; then
     local dir="${search_dir:-.}"
     file=$(actions_find_actionfile "$dir")
@@ -158,6 +161,25 @@ action() {
   elif [[ ! -f "$file" ]]; then
     echo "ERROR: File not found: $file" >&2
     return 2
+  fi
+
+  # If --list, print all available actions and exit
+  if (( list_mode )); then
+    local sectiondump
+    sectiondump="$(actions_extract_action_sections "$file")"
+    local keys=()
+    local key=""
+    while IFS= read -r line; do
+      if [[ "$line" == SECTIONSEP*KEYSEP* ]]; then
+        key="${line#SECTIONSEP}"
+        key="${key%%KEYSEP*}"
+        keys+=("$key")
+      fi
+    done < <(printf "%s\n" "$sectiondump")
+    for k in "${keys[@]}"; do
+      echo "$k"
+    done
+    return 0
   fi
 
   # Prepare environment variables from config and vars

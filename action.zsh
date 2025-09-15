@@ -1,4 +1,5 @@
 #!/usr/bin/env zsh
+#!/usr/bin/env zsh
 
 # Candidate filenames for actionfile
 actions_candidate_files=("Actionfile.md" "Actfile.md" "README.md")
@@ -109,6 +110,8 @@ action() {
   local act=""
   local ctx=""
   local file=""
+  local interactive=0
+  local background=0
   local -A arg_vars
 
   local i=1
@@ -128,6 +131,10 @@ action() {
       local k="${kv%%=*}"
       local v="${kv#*=}"
       arg_vars[$k]="$v"
+    elif [[ "${@[i]}" == "--interactive" ]]; then
+      interactive=1
+    elif [[ "${@[i]}" == "--background" ]]; then
+      background=1
     elif [[ "${@[i]}" == "." || "${@[i]}" == */ || -d "${@[i]}" ]]; then
       search_dir="${@[i]}"
     elif [[ "${@[i]}" == *".md" ]]; then
@@ -170,14 +177,13 @@ action() {
   local -A sections
   local sectiondump
   sectiondump="$(actions_extract_action_sections "$file")"
-  local key=""
-  local body=""
+  local key="" body=""
+  # Use process substitution for robust line reading
   while IFS= read -r line; do
     if [[ "$line" == SECTIONSEP*KEYSEP* ]]; then
       key="${line#SECTIONSEP}"
       key="${key%%KEYSEP*}"
       body="${line#*KEYSEP}"
-      # Start new body, will accumulate lines
     elif [[ "$line" == BODYSEPBODYEND ]]; then
       if [[ -n "$key" ]]; then
         sections[$key]="$body"
@@ -222,8 +228,21 @@ action() {
     fi
   fi
 
-  # Run the script in interactive shell
-  eval "$shell -i -c \"$script\""
+  # Run the script with flags
+  if (( background )); then
+    if (( interactive )); then
+      nohup "$shell" -i -c "$script" &>/dev/null &
+    else
+      nohup "$shell" -c "$script" &>/dev/null &
+    fi
+  else
+    if (( interactive )); then
+      "$shell" -i -c "$script"
+    else
+      "$shell" -c "$script"
+    fi
+  fi
 }
 
+# If you want to allow direct invocation, uncomment:
 # action "$@"

@@ -19,51 +19,53 @@ actions_find_actionfile() {
 actions_extract_action_sections() {
   local file="$1"
   awk '
-    BEGIN {in_code=0; keys=""; body=""}
+    BEGIN {in_code=0; keys=""; body=""; mode=""}
     /^### / {
-      # Output previous section for ALL keys
-      if (body != "" && keys != "") {
+      if (keys != "" && body != "") {
         n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++)
-          printf("SECTIONSEP%sKEYSEP%sBODYSEP%sBODYEND\n", arr[i], body, "");
+        for (i=1; i<=n; i++) {
+          print "SECTIONSTART"
+          print "KEY:" arr[i]
+          print "MODE:" mode
+          print "BODY:"
+          printf "%s", body
+          print "SECTIONEND"
+        }
       }
-      keys = substr($0, 5);
-      body = "";
-      in_code = 0;
-      next;
+      keys = substr($0, 5)
+      body = ""
+      mode = ""
+      in_code = 0
+      next
     }
-    /^```sh/ {in_code=1; next}
+    /^```sh/ {
+      in_code=1
+      # Get mode from the rest of the line (e.g. ```sh background)
+      mode = ""
+      if (match($0, /^```sh[[:space:]]+([a-zA-Z0-9_-]+)/, m)) {
+        mode = m[1]
+      }
+      next
+    }
     in_code && /^```/ {in_code=0; next}
     in_code {body = body $0 "\n"}
     END {
-      # Output last section
-      if (body != "" && keys != "") {
+      if (keys != "" && body != "") {
         n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++)
-          printf("SECTIONSEP%sKEYSEP%sBODYSEP%sBODYEND\n", arr[i], body, "");
+        for (i=1; i<=n; i++) {
+          print "SECTIONSTART"
+          print "KEY:" arr[i]
+          print "MODE:" mode
+          print "BODY:"
+          printf "%s", body
+          print "SECTIONEND"
+        }
       }
     }
   ' "$file"
 }
 
-# Extract default section, only one allowed
-actions_extract_default_section() {
-  local file="$1"
-  awk '
-    BEGIN {found=0}
-    /^### default[ ]+/ {
-      if (found==0) {
-        found=1
-        action=substr($0, 13)
-      }
-    }
-    found && /^```sh/ {in_code=1; next}
-    found && in_code && /^```/ {exit}
-    found && in_code {print}
-  ' "$file"
-}
-
-# Extract config and vars
+# Extract config
 actions_extract_ini_vars() {
   local file="$1"
   awk '
@@ -84,6 +86,7 @@ actions_extract_ini_vars() {
   ' "$file"
 }
 
+# Extract vars
 actions_extract_vars_block() {
   local file="$1"
   awk '
@@ -173,46 +176,23 @@ action() {
     local keys=()
     local key=""
     while IFS= read -r line; do
-      if [[ "$line" == SECTIONSEP*KEYSEP* ]]; then
-        key="${line#SECTIONSEP}"
-        key="${key%%KEYSEP*}"
+      if [[ "$line" == SECTIONSTART ]]; then
+        key=""
+      elif [[ "$line" == KEY:* ]]; then
+        key="${line#KEY:}"
         keys+=("$key")
       fi
     done < <(printf "%s\n" "$sectiondump")
-
-    if (( list_as_actions )); then
-      awk '
-        /^### / {
-          sub(/^### /,"");
-          for (i=1; i<=NF; i++) {
-            word = $i
-            dash = index(word, "-")
-            if (dash == 0) {
-              print word
-            } else {
-              action = substr(word, dash+1)
-              context = substr(word, 1, dash-1)
-              print action " " context
-            }
-          }
-        }
-      ' "$file" | sort -u
-      return 0
-    else
-      print -l "${keys[@]}"
-    fi
+    print -l "${keys[@]}"
     return 0
   fi
 
   # Set predefined variables
-  typeset -A predefined_vars
+  local -A predefined_vars
   predefined_vars[NAME]="$file"
   predefined_vars[TITLE]="$(awk '/^# / {sub(/^# /,""); print; exit}' "$file")"
-
-  # Prepare environment variables from config and vars
   local setenv
   setenv="$(actions_extract_ini_vars "$file")"
-  #eval "$setenv"
   # Add predefined variables programmatically
   local varsblock
   varsblock="$(actions_extract_vars_block "$file")"
@@ -220,8 +200,6 @@ action() {
     val="${predefined_vars[$key]}"
     varsblock="${varsblock}"$'\n'"${key}=\"${val//\"/\\\"}\""
   done
-  #eval "$varsblock"
-
   # Apply --arg overrides
   for k v in "${(@kv)arg_vars}"; do
     # Remove any previous definition for this variable, then append the override
@@ -230,61 +208,78 @@ action() {
   done
 
   # Parse action sections
-  local -A sections
+  local -A sections_body sections_mode
+  local key="" body="" mode="" in_body=0
   local sectiondump
   sectiondump="$(actions_extract_action_sections "$file")"
-  local key="" body=""
-  # Use process substitution for robust line reading
   while IFS= read -r line; do
-    if [[ "$line" == SECTIONSEP*KEYSEP* ]]; then
-      key="${line#SECTIONSEP}"
-      key="${key%%KEYSEP*}"
-      body="${line#*KEYSEP}"
-    elif [[ "$line" == BODYSEPBODYEND ]]; then
+    if [[ "$line" == SECTIONSTART ]]; then
+      key=""
+      body=""
+      mode=""
+      in_body=0
+    elif [[ "$line" == KEY:* ]]; then
+      key="${line#KEY:}"
+      key="${key//[[:space:]]/}"
+    elif [[ "$line" == MODE:* ]]; then
+      mode="${line#MODE:}"
+      mode="${mode//[[:space:]]/}"
+    elif [[ "$line" == BODY:* ]]; then
+      in_body=1
+      body=""
+    elif [[ "$line" == SECTIONEND ]]; then
+      in_body=0
       if [[ -n "$key" ]]; then
-        sections[$key]="$body"
-        key="" body=""
+        sections_body["$key"]="$body"
+        sections_mode["$key"]="$mode"
       fi
-    elif [[ -n "$key" ]]; then
-      body="$body"$'\n'"$line"
+    elif (( in_body )); then
+      body+="$line"$'\n'
     fi
-  done < <(printf "%s\n" "$sectiondump")
-
-  # Extract default section
-  local default_section
-  default_section="$(actions_extract_default_section "$file")"
+  done <<< "$sectiondump"
 
   local script=""
+  local execmode=""
+  local platform="$(actions_detect_platform)"
+
+  # Set action to "default" if none provided
   if [[ -z "$act" ]]; then
-    if [[ -n "$default_section" ]]; then
-      script="$default_section"
-    else
-      echo "ERROR: No action specified and no default section found in $file" >&2
-      return 2
-    fi
-  elif [[ -n "$ctx" ]]; then
-    local composite="${ctx}-${act}"
-    script="${sections[$composite]}"
-    if [[ -z "$script" ]]; then
-      echo "ERROR: Section \"$composite\" not found and fallback is not allowed." >&2
-      return 2
-    fi
-  else
-    script="${sections[$act]}"
-    if [[ -z "$script" ]]; then
-      local platform="$(actions_detect_platform)"
-      if [[ -n "$platform" ]]; then
-        local platform_key="${platform}-${act}"
-        script="${sections[$platform_key]}"
-      fi
-      if [[ -z "$script" ]]; then
-        echo "ERROR: Section \"$act\" not found and no suitable ctx-specific section available." >&2
-        return 2
-      fi
-    fi
+    act="default"
   fi
 
-  # Run the script with injected variables (local to action shell)
+  # Direct match
+  [[ -n "$act" ]] && script="${sections_body["$act"]}" && execmode="${sections_mode["$act"]}"
+
+  # Context match: ctx-act (e.g. background-run)
+  if [[ -z "${script//[[:space:]]/}" && -n "$ctx" && -n "$act" ]]; then
+    local composite="${ctx}-${act}"
+    script="${sections_body["$composite"]}"
+    execmode="${sections_mode["$composite"]}"
+  fi
+
+  # Platform match: platform-act (e.g. fedora-run)
+  if [[ -z "${script//[[:space:]]/}" && -n "$platform" && -n "$act" ]]; then
+    local platform_key="${platform}-${act}"
+    script="${sections_body["$platform_key"]}"
+    execmode="${sections_mode["$platform_key"]}"
+  fi
+
+  # Fallback: error
+  if [[ -z "${script//[[:space:]]/}" ]]; then
+    echo "ERROR: Section \"${ctx:+$ctx-}$act\" not found and no suitable ctx-specific section available." >&2
+    return 2
+  fi
+
+  # Set background/interactive from execmode (if not already forced by CLI)
+  if [[ "$execmode" == background ]]; then
+    background=1
+  fi
+  if [[ "$execmode" == interactive ]]; then
+    interactive=1
+  fi
+  # add: subshell, evaluate, sourced
+
+  # Execution according to mode
   if (( background )); then
     if (( interactive )); then
       nohup "$shell" -i <<EOF &>/dev/null &
@@ -315,6 +310,3 @@ EOF
     fi
   fi
 }
-
-# If you want to allow direct invocation, uncomment:
-# action "$@"

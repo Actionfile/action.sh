@@ -1,5 +1,4 @@
 #!/usr/bin/env zsh
-#!/usr/bin/env zsh
 
 # Candidate filenames for actionfile
 actions_candidate_files=("Actionfile.md" "Actfile.md" "README.md")

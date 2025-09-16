@@ -295,11 +295,15 @@ action() {
     eval "$varsblock"
     eval "$script"
   elif (( subshell )); then
-    (
+    local output exitcode
+    output=$(
       eval "$setenv"
       eval "$varsblock"
       eval "$script"
-    ) 
+    )
+    exitcode=$?
+    [ -n "$output" ] && echo "$output"
+    return $exitcode
   elif (( sourced )); then
     _tmpfile=$(mktemp)
     echo "$setenv" > $_tmpfile

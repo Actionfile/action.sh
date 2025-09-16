@@ -256,14 +256,17 @@ action() {
     act="default"
   fi
 
-  # Direct match
-  [[ -n "$act" ]] && script="${sections_body["$act"]}" && execmode="${sections_mode["$act"]}"
-
   # Context match: ctx-act (e.g. background-run)
   if [[ -z "${script//[[:space:]]/}" && -n "$ctx" && -n "$act" ]]; then
     local composite="${ctx}-${act}"
     script="${sections_body["$composite"]}"
     execmode="${sections_mode["$composite"]}"
+  fi
+
+  # Direct match
+  if [[ -z "${script//[[:space:]]/}" && -n "$act" ]]; then
+    script="${sections_body["$act"]}"
+    execmode="${sections_mode["$act"]}"
   fi
 
   # Platform match: platform-act (e.g. fedora-run)

@@ -114,6 +114,9 @@ action() {
   local file=""
   local interactive=0
   local background=0
+  local subshell=0
+  local evaluate=0
+  local sourced=0
   local list_mode=0
   local list_as_actions=0
   local -A arg_vars
@@ -139,6 +142,12 @@ action() {
       interactive=1
     elif [[ "${@[i]}" == "--background" ]]; then
       background=1
+    elif [[ "${@[i]}" == "--subshell" ]]; then
+      subshell=1
+    elif [[ "${@[i]}" == "--evaluate" ]]; then
+      evaluate=1
+    elif [[ "${@[i]}" == "--sourced" ]]; then
+      sourced=1
     elif [[ "${@[i]}" == "--list-sections" ]]; then
       list_mode=1
     elif [[ "${@[i]}" == "--list-actions" ]]; then
@@ -271,42 +280,49 @@ action() {
   fi
 
   # Set background/interactive from execmode (if not already forced by CLI)
-  if [[ "$execmode" == background ]]; then
-    background=1
-  fi
-  if [[ "$execmode" == interactive ]]; then
-    interactive=1
-  fi
-  # add: subshell, evaluate, sourced
-
+  case "$execmode" in
+    *subshell*)    subshell=1 ;;
+    *evaluate*)    evaluate=1 ;;
+    *sourced*)     sourced=1 ;;
+    *background*)  background=1 ;;
+    *interactive*) interactive=1 ;;
+    *)	           subshell=1 ;;	# default execution mode
+  esac
+  
   # Execution according to mode
-  if (( background )); then
-    if (( interactive )); then
-      nohup "$shell" -i <<EOF &>/dev/null &
+  if (( evaluate )); then
+    eval "$setenv"
+    eval "$varsblock"
+    eval "$script"
+  elif (( subshell )); then
+    (
+      eval "$setenv"
+      eval "$varsblock"
+      eval "$script"
+    ) 
+  elif (( sourced )); then
+    _tmpfile=$(mktemp)
+    echo "$setenv" > $_tmpfile
+    echo "$varsblock" >> $_tmpfile
+    echo "$script" >> $_tmpfile
+    source $_tmpfile
+    rm -f $_tmpfile
+  elif (( background )); then
+    nohup "$shell" <<EOF &>/dev/null &
 $setenv
 $varsblock
 $script
 EOF
-    else
-      nohup "$shell" <<EOF &>/dev/null &
-$setenv
-$varsblock
-$script
-EOF
+   elif (( interactive )); then
+    if [[ "$shell" == *zsh* ]]; then
+      echo "WARNING: You selected zsh as the execution shell. Note: Running zsh in interactive mode (-i) with a heredoc will NOT execute the script input!"
+      return 1
     fi
-  else
-    if (( interactive )); then
-      "$shell" -i <<EOF
+
+    "$shell" -i <<EOF
 $setenv
 $varsblock
 $script
 EOF
-    else
-      "$shell" <<EOF
-$setenv
-$varsblock
-$script
-EOF
-    fi
   fi
 }

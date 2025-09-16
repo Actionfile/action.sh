@@ -113,6 +113,7 @@ action() {
   local interactive=0
   local background=0
   local list_mode=0
+  local list_as_actions=0
   local -A arg_vars
 
   local i=1
@@ -136,8 +137,11 @@ action() {
       interactive=1
     elif [[ "${@[i]}" == "--background" ]]; then
       background=1
-    elif [[ "${@[i]}" == "--list" ]]; then
+    elif [[ "${@[i]}" == "--list-sections" ]]; then
       list_mode=1
+    elif [[ "${@[i]}" == "--list-actions" ]]; then
+      list_mode=1
+      list_as_actions=1
     elif [[ "${@[i]}" == "." || "${@[i]}" == */ || -d "${@[i]}" ]]; then
       search_dir="${@[i]}"
     elif [[ "${@[i]}" == *".md" ]]; then
@@ -176,9 +180,28 @@ action() {
         keys+=("$key")
       fi
     done < <(printf "%s\n" "$sectiondump")
-    for k in "${keys[@]}"; do
-      echo "$k"
-    done
+
+    if (( list_as_actions )); then
+      awk '
+        /^### / {
+          sub(/^### /,"");
+          for (i=1; i<=NF; i++) {
+            word = $i
+            dash = index(word, "-")
+            if (dash == 0) {
+              print word
+            } else {
+              action = substr(word, dash+1)
+              context = substr(word, 1, dash-1)
+              print action " " context
+            }
+          }
+        }
+      ' "$file" | sort -u
+      return 0
+    else
+      print -l "${keys[@]}"
+    fi
     return 0
   fi
 

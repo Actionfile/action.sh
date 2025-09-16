@@ -22,17 +22,42 @@ actions_extract_action_sections() {
     BEGIN {in_code=0; keys=""; body=""; mode=""}
     /^### / {
       if (keys != "" && body != "") {
-        n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++) {
+        n2 = split(keys, arr2, /[[:space:]]+/)
+        for (j=1; j<=n2; j++) {
           print "SECTIONSTART"
-          print "KEY:" arr[i]
+          print "KEY:" arr2[j]
           print "MODE:" mode
           print "BODY:"
           printf "%s", body
           print "SECTIONEND"
         }
       }
-      keys = substr($0, 5)
+      # If backtick is present, only process what is between backticks
+      if (match($0, /`([^`]*)`/, m)) {
+        extracted = m[1]
+        if (index(extracted, " ")) {
+          split(extracted, words, /[[:space:]]+/)
+          if (length(words) >= 2) {
+            keys = words[1] " " words[2]
+          } else {
+            keys = words[1]
+          }
+        } else {
+          keys = extracted
+        }
+      } else {
+        keys = ""
+        rest = substr($0, 5)
+        n = split(rest, arr, /[[:space:]]+/)
+        for (i=1; i<=n; i++) {
+          if (match(arr[i], /^[A-Za-z-]+$/)) {
+            if (keys != "") keys = keys " "
+            keys = keys arr[i]
+          } else {
+            break
+          }
+        }
+      }
       body = ""
       mode = ""
       in_code = 0
@@ -51,10 +76,10 @@ actions_extract_action_sections() {
     in_code {body = body $0 "\n"}
     END {
       if (keys != "" && body != "") {
-        n = split(keys, arr, /[[:space:]]+/)
-        for (i=1; i<=n; i++) {
+        n2 = split(keys, arr2, /[[:space:]]+/)
+        for (j=1; j<=n2; j++) {
           print "SECTIONSTART"
-          print "KEY:" arr[i]
+          print "KEY:" arr2[j]
           print "MODE:" mode
           print "BODY:"
           printf "%s", body

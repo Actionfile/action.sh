@@ -205,17 +205,29 @@ action() {
     return 0
   fi
 
+  # Set predefined variables
+  typeset -A predefined_vars
+  predefined_vars[NAME]="$file"
+  predefined_vars[TITLE]="$(awk '/^# / {sub(/^# /,""); print; exit}' "$file")"
+
   # Prepare environment variables from config and vars
   local setenv
   setenv="$(actions_extract_ini_vars "$file")"
-  eval "$setenv"
+  #eval "$setenv"
+  # Add predefined variables programmatically
   local varsblock
   varsblock="$(actions_extract_vars_block "$file")"
-  eval "$varsblock"
+  for key in "${(@k)predefined_vars}"; do
+    val="${predefined_vars[$key]}"
+    varsblock="${varsblock}"$'\n'"${key}=\"${val//\"/\\\"}\""
+  done
+  #eval "$varsblock"
 
   # Apply --arg overrides
   for k v in "${(@kv)arg_vars}"; do
-    export "$k"="$v"
+    # Remove any previous definition for this variable, then append the override
+    varsblock=$(echo "$varsblock" | awk -v k="$k" '!($0 ~ "^"k"=") {print}')
+    varsblock="${varsblock}"$'\n'"${k}=\"${v//\"/\\\"}\""
   done
 
   # Parse action sections
@@ -273,18 +285,34 @@ action() {
     fi
   fi
 
-  # Run the script with flags
+  # Run the script with injected variables (local to action shell)
   if (( background )); then
     if (( interactive )); then
-      nohup "$shell" -i -c "$script" &>/dev/null &
+      nohup "$shell" -i <<EOF &>/dev/null &
+$setenv
+$varsblock
+$script
+EOF
     else
-      nohup "$shell" -c "$script" &>/dev/null &
+      nohup "$shell" <<EOF &>/dev/null &
+$setenv
+$varsblock
+$script
+EOF
     fi
   else
     if (( interactive )); then
-      "$shell" -i -c "$script"
+      "$shell" -i <<EOF
+$setenv
+$varsblock
+$script
+EOF
     else
-      "$shell" -c "$script"
+      "$shell" <<EOF
+$setenv
+$varsblock
+$script
+EOF
     fi
   fi
 }

@@ -8,6 +8,6 @@ TEST="hi"
 ### default run
 ```sh
 echo ${TEST}
-echo ${NAME}
+echo ${FILENAME}
 echo ${TITLE}
 ```

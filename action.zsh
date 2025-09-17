@@ -19,32 +19,32 @@ actions_find_actionfile() {
 actions_extract_action_sections() {
   local file="$1"
   awk '
-    BEGIN {in_code=0; keys=""; body=""; mode=""}
+    BEGIN {in_code=0; keys=""; body=""; mode=""; from_backticks=0}
     /^### / {
       if (keys != "" && body != "") {
-        n2 = split(keys, arr2, /[[:space:]]+/)
-        for (j=1; j<=n2; j++) {
+        if (from_backticks) {
           print "SECTIONSTART"
-          print "KEY:" arr2[j]
+          print "KEY:" keys
           print "MODE:" mode
           print "BODY:"
           printf "%s", body
           print "SECTIONEND"
+        } else {
+          n2 = split(keys, arr2, /[[:space:]]+/)
+          for (j=1; j<=n2; j++) {
+            print "SECTIONSTART"
+            print "KEY:" arr2[j]
+            print "MODE:" mode
+            print "BODY:"
+            printf "%s", body
+            print "SECTIONEND"
+          }
         }
       }
-      # If backtick is present, only process what is between backticks
+      # Single key inside backticks
       if (match($0, /`([^`]*)`/, m)) {
-        extracted = m[1]
-        if (index(extracted, " ")) {
-          split(extracted, words, /[[:space:]]+/)
-          if (length(words) >= 2) {
-            keys = words[1] " " words[2]
-          } else {
-            keys = words[1]
-          }
-        } else {
-          keys = extracted
-        }
+        keys = m[1]
+        from_backticks = 1
       } else {
         keys = ""
         rest = substr($0, 5)
@@ -57,6 +57,7 @@ actions_extract_action_sections() {
             break
           }
         }
+        from_backticks = 0
       }
       body = ""
       mode = ""
@@ -65,7 +66,6 @@ actions_extract_action_sections() {
     }
     /^```sh/ {
       in_code=1
-      # Get mode from the rest of the line (e.g. ```sh background)
       mode = ""
       if (match($0, /^```sh[[:space:]]+([a-zA-Z0-9_-]+)/, m)) {
         mode = m[1]
@@ -76,14 +76,23 @@ actions_extract_action_sections() {
     in_code {body = body $0 "\n"}
     END {
       if (keys != "" && body != "") {
-        n2 = split(keys, arr2, /[[:space:]]+/)
-        for (j=1; j<=n2; j++) {
+        if (from_backticks) {
           print "SECTIONSTART"
-          print "KEY:" arr2[j]
+          print "KEY:" keys
           print "MODE:" mode
           print "BODY:"
           printf "%s", body
           print "SECTIONEND"
+        } else {
+          n2 = split(keys, arr2, /[[:space:]]+/)
+          for (j=1; j<=n2; j++) {
+            print "SECTIONSTART"
+            print "KEY:" arr2[j]
+            print "MODE:" mode
+            print "BODY:"
+            printf "%s", body
+            print "SECTIONEND"
+          }
         }
       }
     }

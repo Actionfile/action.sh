@@ -290,6 +290,13 @@ action() {
     act="default"
   fi
 
+  # Backtick match: act ctx (e.g. make cross)
+  if [[ -z "${script//[[:space:]]/}" && -n "$ctx" && -n "$act" ]]; then
+    local joined="${act}${ctx}"
+    script="${sections_body["$joined"]}"
+    execmode="${sections_mode["$joined"]}"
+  fi
+
   # Context match: ctx-act (e.g. background-run)
   if [[ -z "${script//[[:space:]]/}" && -n "$ctx" && -n "$act" ]]; then
     local composite="${ctx}-${act}"

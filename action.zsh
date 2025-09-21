@@ -143,14 +143,6 @@ actions_extract_vars_block() {
   ' "$file"
 }
 
-# Platform detection (for context fallback)
-actions_detect_platform() {
-  if [[ -f /etc/os-release ]]; then
-    local os_id=$(awk -F= '$1=="ID"{print $2}' /etc/os-release)
-    echo $os_id
-  fi
-}
-
 action() {
   local shell="${ACTIONFILE_SHELL:-bash}"
   local search_dir=""
@@ -261,6 +253,8 @@ action() {
   if [[ -n $configblock ]]; then
     setenv="$(printf '%s\n' "$configblock" | actions_parse_ini)"
   fi
+
+
   # Add predefined variables programmatically
   local varsblock
   varsblock="$(actions_extract_vars_block "$file")"
@@ -268,12 +262,22 @@ action() {
     val="${predefined_vars[$key]}"
     varsblock="${varsblock}"$'\n'"${key}=\"${val//\"/\\\"}\""
   done
+
   # Apply --arg overrides
   for k v in "${(@kv)arg_vars}"; do
     # Remove any previous definition for this variable, then append the override
     varsblock=$(echo "$varsblock" | awk -v k="$k" '!($0 ~ "^"k"=") {print}')
     varsblock="${varsblock}"$'\n'"${k}=\"${v//\"/\\\"}\""
   done
+
+  # Handle configdir and possible override config
+  local configdir configname configfile setoverride
+  configpath=${arg_vars[CONFIGPATH]}
+  configname=${arg_vars[APPNAME]}
+  configfile="${configpath}/${configname}.ini"
+  if [[ -f "${configfile}" ]]; then
+    setoverride="$(cat ${configfile} | actions_parse_ini)"
+  fi
 
   # Parse action sections
   local -A sections_body sections_mode
@@ -307,8 +311,8 @@ action() {
   done <<< "$sectiondump"
 
   local script=""
+  local shared=""
   local execmode=""
-  local platform="$(actions_detect_platform)"
 
   # Set action to "default" if none provided
   if [[ -z "$act" ]]; then
@@ -335,19 +339,15 @@ action() {
     execmode="${sections_mode["$act"]}"
   fi
 
-  # Platform match: platform-act (e.g. fedora-run)
-  if [[ -z "${script//[[:space:]]/}" && -n "$platform" && -n "$act" ]]; then
-    local platform_key="${platform}-${act}"
-    script="${sections_body["$platform_key"]}"
-    execmode="${sections_mode["$platform_key"]}"
-  fi
-
   # Fallback: error
   if [[ -z "${script//[[:space:]]/}" ]]; then
     echo "ERROR: Section \"${ctx:+$ctx-}$act\" not found and no suitable ctx-specific section available." >&2
     return 2
   fi
 
+  # Get shared
+  shared="${sections_body["shared"]}"
+ 
   # Set background/interactive from execmode (if not already forced by CLI)
   case "$execmode" in
     *subshell*)    subshell=1 ;;
@@ -359,33 +359,41 @@ action() {
   esac
 
   # Execution according to mode
-  if (( evaluate )); then
+  if (( background )); then
+    nohup "$shell" <<EOF &>/dev/null &
+$setenv
+$varsblock
+$setoverride
+$shared
+$script
+EOF
+  elif (( evaluate )); then
     eval "$setenv"
     eval "$varsblock"
+    eval "$setoverride"
+    eval "$shared"
     eval "$script"
+  elif (( sourced )); then
+    _tmpfile=$(mktemp)
+    echo "$setenv" > $_tmpfile
+    echo "$varsblock" >> $_tmpfile
+    echo "$setoverride" >> $_tmpfile
+    echo "$shared" >> $_tmpfile
+    echo "$script" >> $_tmpfile
+    source $_tmpfile
+    rm -f $_tmpfile
   elif (( subshell )); then
     local output exitcode
     output=$(
       eval "$setenv"
       eval "$varsblock"
+      eval "$setoverride"
+      eval "$shared"
       eval "$script"
     )
     exitcode=$?
     [ -n "$output" ] && echo "$output"
     return $exitcode
-  elif (( sourced )); then
-    _tmpfile=$(mktemp)
-    echo "$setenv" > $_tmpfile
-    echo "$varsblock" >> $_tmpfile
-    echo "$script" >> $_tmpfile
-    source $_tmpfile
-    rm -f $_tmpfile
-  elif (( background )); then
-    nohup "$shell" <<EOF &>/dev/null &
-$setenv
-$varsblock
-$script
-EOF
    elif (( interactive )); then
     if [[ "$shell" == *zsh* ]]; then
       echo "WARNING: You selected zsh as the execution shell. Note: Running zsh in interactive mode (-i) with a heredoc will NOT execute the script input!"
@@ -395,6 +403,8 @@ EOF
     "$shell" -i <<EOF
 $setenv
 $varsblock
+$setoverride
+$shared
 $script
 EOF
   fi
